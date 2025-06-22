@@ -13,14 +13,19 @@ uploaded_file_b = st.file_uploader("上传模板文件B（项目细化导入模�
 
 if st.button("开始处理") and uploaded_zip and uploaded_file_b:
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 解压zip为文件夹A
+       # 解压zip为文件夹A
         zip_path = os.path.join(tmpdir, "folder_a.zip")
         with open(zip_path, "wb") as f:
             f.write(uploaded_zip.read())
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             folder_a_path = os.path.join(tmpdir, "folder_a")
             zip_ref.extractall(folder_a_path)
-
+           
+        st.write("🗂️ 解压后的文件列表：")
+        for root, dirs, files in os.walk(folder_a_path):
+            for name in files:
+                st.write(os.path.join(root, name))
+        
         # 保存模板文件B
         file_b_path = os.path.join(tmpdir, "file_b.xlsx")
         with open(file_b_path, "wb") as f:
