@@ -14,48 +14,52 @@ def process_file_a(folder_path, output_file="文件A_汇总结果.xlsx"):
         if filename.endswith(('.xls', '.xlsx')) and not filename.startswith('~$'):
             filepath = os.path.join(folder_path, filename)
             try:
-                # 读取Excel，第四行作为表头
-                df_raw = pd.read_excel(filepath, header=None)  # 不设表头
-                df = df_raw[3:]  # 跳过前三行，只保留第4行及之后
-                df.columns = df_raw.iloc[3]  # 第4行作为列名
+                print(f"开始处理文件: {filename}")
+
+                # 先不设表头，完整读入
+                df_raw = pd.read_excel(filepath, header=None)
+                # 跳过前三行，只保留第4行及以后
+                df = df_raw[3:]
+                # 以第4行作为列名
+                df.columns = df_raw.iloc[3]
                 df = df.reset_index(drop=True)
-                print(f"处理文件: {filename}")
-                
-                # 预算单位列（B列，索引1）
+
+                print(f"{filename} 的列名如下:")
+                print(list(df.columns))
+
+                # 预算单位列（通常是B列，即索引1）
                 budget_unit_col = df.columns[1]
-                
+
                 # 工资类型列，Q到AD列（索引16到29）
                 wage_cols = df.columns[16:30]
-                
+
                 # 选取需要的列
                 df_filtered = df[[budget_unit_col] + list(wage_cols)]
-                
+
                 # 将工资列转换为数值型，非数字转NaN，再用0填充
                 df_filtered[wage_cols] = df_filtered[wage_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
-                
+
                 # 按预算单位分组求和
                 df_grouped = df_filtered.groupby(budget_unit_col).sum()
-                
+
                 # 收集所有数值
                 for budget_unit, row in df_grouped.iterrows():
                     for wage_type in wage_cols:
                         value = row[wage_type]
-                        print(f"原始工资类型: {wage_type}, 值: {value}")  # 调试用
-                        original_wage_type = wage_type  # 保存原始值
-                        wage_type = wage_type.strip()  # 去除前后空格
-                        if "绩效工资" in wage_type:
-                            wage_type = wage_type.replace("绩效工资", "基础性绩效")
-                        if "行政医疗" in wage_type:
-                            wage_type = wage_type.replace("行政医疗", "职工基本医疗（行政）")
-                        elif "事业医疗" in wage_type:  # 使用elif避免重复替换
-                            wage_type = wage_type.replace("事业医疗", "基本医疗（事业）")
-                        elif "医疗保险" in wage_type:  # 可能还有其他表述
-                            wage_type = wage_type.replace("医疗保险", "基本医疗")
-                        print(f"处理后工资类型: {wage_type}")  # 调试用
-                        key = (str(budget_unit).strip(), str(wage_type).strip())
+                        wage_type_str = str(wage_type).strip()
+                        if "绩效工资" in wage_type_str:
+                            wage_type_str = wage_type_str.replace("绩效工资", "基础性绩效")
+                        if "行政医疗" in wage_type_str:
+                            wage_type_str = wage_type_str.replace("行政医疗", "职工基本医疗（行政）")
+                        elif "事业医疗" in wage_type_str:
+                            wage_type_str = wage_type_str.replace("事业医疗", "基本医疗（事业）")
+                        elif "医疗保险" in wage_type_str:
+                            wage_type_str = wage_type_str.replace("医疗保险", "基本医疗")
+
+                        key = (str(budget_unit).strip(), wage_type_str)
                         all_values[key] = value
-                        if "医疗" in wage_type:
-                            print(f"医疗数值记录 - 单位: {budget_unit}, 类型: {wage_type}, 值: {value}")
+                        if "医疗" in wage_type_str:
+                            print(f"医疗数值记录 - 单位: {budget_unit}, 类型: {wage_type_str}, 值: {value}")
 
                 if df_grouped is not None and not df_grouped.empty:
                     all_data.append(df_grouped)
@@ -79,6 +83,7 @@ def process_file_a(folder_path, output_file="文件A_汇总结果.xlsx"):
         print("没有找到有效数据")
         return None, None
 
+
 def update_file_b(file_a_path, file_b_path):
     """
     用文件A中的所有数值更新文件B的J列，保留原有格式
@@ -93,15 +98,16 @@ def update_file_b(file_a_path, file_b_path):
         for budget_unit, row in df_a.iterrows():
             for wage_type in wage_cols:
                 value = row[wage_type]
-                if "绩效工资" in wage_type:
-                    wage_type = wage_type.replace("绩效工资", "基础性绩效")
-                if "行政医疗" in wage_type:
-                    wage_type = wage_type.replace("行政医疗", "职工基本医疗（行政）")
-                elif "事业医疗" in wage_type:  # 使用elif避免重复替换
-                    wage_type = wage_type.replace("事业医疗", "基本医疗（事业）")
-                elif "医疗保险" in wage_type:  # 可能还有其他表述
-                    wage_type = wage_type.replace("医疗保险", "基本医疗")
-                key = (str(budget_unit).strip(), str(wage_type).strip())
+                wage_type_str = str(wage_type).strip()
+                if "绩效工资" in wage_type_str:
+                    wage_type_str = wage_type_str.replace("绩效工资", "基础性绩效")
+                if "行政医疗" in wage_type_str:
+                    wage_type_str = wage_type_str.replace("行政医疗", "职工基本医疗（行政）")
+                elif "事业医疗" in wage_type_str:
+                    wage_type_str = wage_type_str.replace("事业医疗", "基本医疗（事业）")
+                elif "医疗保险" in wage_type_str:
+                    wage_type_str = wage_type_str.replace("医疗保险", "基本医疗")
+                key = (str(budget_unit).strip(), wage_type_str)
                 all_values[key] = value
 
         # 2. 使用openpyxl直接操作Excel文件
