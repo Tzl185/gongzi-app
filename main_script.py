@@ -15,7 +15,10 @@ def process_file_a(folder_path, output_file="文件A_汇总结果.xlsx"):
             filepath = os.path.join(folder_path, filename)
             try:
                 # 读取Excel，第四行作为表头
-                df = pd.read_excel(filepath, header=3)
+                df_raw = pd.read_excel(filepath, header=None)  # 不设表头
+                df = df_raw[3:]  # 跳过前三行，只保留第4行及之后
+                df.columns = df_raw.iloc[3]  # 第4行作为列名
+                df = df.reset_index(drop=True)
                 print(f"处理文件: {filename}")
                 
                 # 预算单位列（B列，索引1）
