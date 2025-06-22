@@ -5,44 +5,36 @@ import pandas as pd
 def process_file_a(folder_path, output_file="文件A_汇总结果.xlsx"):
     """
     处理文件夹中的Excel表，生成汇总的文件A
-    返回文件A的路径和所有数值字典
+    返回文件A的路径和所有数值字典，及日志字符串
     """
+    import io
+    log = io.StringIO()
+
     all_data = []
     all_values = {}
-    
+
     for filename in os.listdir(folder_path):
         if filename.endswith(('.xls', '.xlsx')) and not filename.startswith('~$'):
             filepath = os.path.join(folder_path, filename)
             try:
-                print(f"开始处理文件: {filename}")
+                print(f"开始处理文件: {filename}", file=log)
 
-                # 先不设表头，完整读入
                 df_raw = pd.read_excel(filepath, header=None)
-                # 跳过前三行，只保留第4行及以后
                 df = df_raw[3:]
-                # 以第4行作为列名
                 df.columns = df_raw.iloc[3]
                 df = df.reset_index(drop=True)
 
-                print(f"{filename} 的列名如下:")
-                print(list(df.columns))
+                print(f"{filename} 的列名如下:", file=log)
+                print(list(df.columns), file=log)
 
-                # 预算单位列（通常是B列，即索引1）
                 budget_unit_col = df.columns[1]
-
-                # 工资类型列，Q到AD列（索引16到29）
                 wage_cols = df.columns[16:30]
 
-                # 选取需要的列
                 df_filtered = df[[budget_unit_col] + list(wage_cols)]
-
-                # 将工资列转换为数值型，非数字转NaN，再用0填充
                 df_filtered[wage_cols] = df_filtered[wage_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
 
-                # 按预算单位分组求和
                 df_grouped = df_filtered.groupby(budget_unit_col).sum()
 
-                # 收集所有数值
                 for budget_unit, row in df_grouped.iterrows():
                     for wage_type in wage_cols:
                         value = row[wage_type]
@@ -59,29 +51,27 @@ def process_file_a(folder_path, output_file="文件A_汇总结果.xlsx"):
                         key = (str(budget_unit).strip(), wage_type_str)
                         all_values[key] = value
                         if "医疗" in wage_type_str:
-                            print(f"医疗数值记录 - 单位: {budget_unit}, 类型: {wage_type_str}, 值: {value}")
+                            print(f"医疗数值记录 - 单位: {budget_unit}, 类型: {wage_type_str}, 值: {value}", file=log)
 
                 if df_grouped is not None and not df_grouped.empty:
                     all_data.append(df_grouped)
-                
+
             except Exception as e:
-                print(f"处理文件 {filename} 出错: {e}")
-    
+                print(f"处理文件 {filename} 出错: {e}", file=log)
+
     if all_data:
-        # 合并所有文件的汇总结果
         df_all = pd.concat(all_data)
-        # 按预算单位再次汇总
         df_final = df_all.groupby(df_all.index).sum()
-        
+
         output_path = os.path.join(folder_path, output_file)
         df_final.to_excel(output_path)
-        print(f"\n汇总结果已保存到: {output_path}")
-        
-        print(f"\n总共收集到 {len(all_values)} 个数值")
-        return output_path, all_values
+        print(f"\n汇总结果已保存到: {output_path}", file=log)
+
+        print(f"\n总共收集到 {len(all_values)} 个数值", file=log)
+        return output_path, all_values, log.getvalue()
     else:
-        print("没有找到有效数据")
-        return None, None
+        print("没有找到有效数据", file=log)
+        return None, None, log.getvalue()
 
 
 def update_file_b(file_a_path, file_b_path):
@@ -89,11 +79,9 @@ def update_file_b(file_a_path, file_b_path):
     用文件A中的所有数值更新文件B的J列，保留原有格式
     """
     try:
-        # 1. 从文件A中读取数据
         df_a = pd.read_excel(file_a_path, index_col=0)
         wage_cols = df_a.columns
-        
-        # 提取所有数值
+
         all_values = {}
         for budget_unit, row in df_a.iterrows():
             for wage_type in wage_cols:
@@ -110,52 +98,44 @@ def update_file_b(file_a_path, file_b_path):
                 key = (str(budget_unit).strip(), wage_type_str)
                 all_values[key] = value
 
-        # 2. 使用openpyxl直接操作Excel文件
         wb = load_workbook(file_b_path)
         sheet = wb.active
-        
-        # J列的索引（从1开始计数）
-        j_col_index = 10
-        
-        # 3. 更新J列数据
+
+        j_col_index = 10  # J列
+
         match_count = 0
-        for row_idx in range(2, sheet.max_row + 1):  # 从第2行开始
+        for row_idx in range(2, sheet.max_row + 1):
             unit_cell = sheet.cell(row=row_idx, column=1)
             unit_info = str(unit_cell.value).strip() if unit_cell.value else ""
-            
+
             budget_cell = sheet.cell(row=row_idx, column=2)
             budget_project = str(budget_cell.value).strip() if budget_cell.value else ""
-            
-            # 清理单位信息
+
             unit_info_cleaned = unit_info.replace("-", "").replace(" ", "")
-            
-            # 查找匹配
+
             matched = False
             for (budget_unit, wage_type), value in all_values.items():
                 budget_unit_cleaned = budget_unit.replace("-", "").replace(" ", "")
-                
-                # 匹配条件
+
                 unit_match = (budget_unit_cleaned in unit_info_cleaned) or (unit_info_cleaned in budget_unit_cleaned)
                 wage_match = wage_type in budget_project
-                
+
                 if unit_match and wage_match:
-                    # 更新单元格值，保留原有样式
                     sheet.cell(row=row_idx, column=j_col_index).value = value
                     match_count += 1
                     matched = True
                     print(f"匹配成功: 行{row_idx} 单位:'{unit_info}'⊇'{budget_unit}', 项目:'{budget_project}'⊇'{wage_type}', 值:{value}")
                     break
-            
-            if not matched and row_idx < 7:  # 打印前5行未匹配情况
+
+            if not matched and row_idx < 7:
                 print(f"未匹配: 行{row_idx} 单位:'{unit_info}', 项目:'{budget_project}'")
-        
-        # 4. 保存更新后的文件B
+
         output_path = os.path.join(os.path.dirname(file_b_path), "updated_" + os.path.basename(file_b_path))
         wb.save(output_path)
         print(f"\n总共完成 {match_count} 处匹配")
         print(f"已保存更新后的文件B到: {output_path}")
         return output_path
-    
+
     except Exception as e:
         print(f"\n更新文件B出错: {e}")
         return None
