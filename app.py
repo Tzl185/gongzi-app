@@ -1,110 +1,78 @@
+# app.py
 import streamlit as st
-import tempfile
-import zipfile
-import os
+import zipfile, tempfile, os
 import pandas as pd
-from main_script import process_file_a, update_file_b
+from main_script import process_file_a, update_file_b, convert_xls_to_xlsx
 
-st.title("工资预算处理工具")
+st.set_page_config(page_title="工资自动处理", layout="wide")
+st.title("📊 工资数据自动汇总与更新系统")
+log_placeholder = st.empty()
 
-uploaded_zip = st.file_uploader("上传压缩的文件夹（ZIP格式，内含Excel文件）", type="zip")
-uploaded_file_b = st.file_uploader("上传文件B（模板Excel）", type=["xls", "xlsx"])
+st.markdown("""
+1. 上传 `.zip` 文件，里面放多个工资 `.xls` 或 `.xlsx` 表格（标题在第4行）
+2. 自动生成“文件A”汇总结果
+3. 可选：上传模板文件B，用文件A数值自动更新J列
+""")
 
-def run_process_file_a(folder_path):
-    import io
-    log = io.StringIO()
+zip_file = st.file_uploader("📂 上传包含多个Excel的压缩包 (.zip)", type="zip")
+file_b = st.file_uploader("📄 （可选）上传模板文件B (.xlsx)", type="xlsx")
 
-    all_data = []
-    all_values = {}
-    
-    for filename in os.listdir(folder_path):
-        if filename.endswith(('.xls', '.xlsx')) and not filename.startswith('~$'):
-            filepath = os.path.join(folder_path, filename)
-            try:
-                print(f"开始处理文件: {filename}", file=log)
-
-                df_raw = pd.read_excel(filepath, header=None)
-                df = df_raw[3:]
-                df.columns = df_raw.iloc[3]
-                df = df.reset_index(drop=True)
-
-                print(f"{filename} 的列名如下:", file=log)
-                print(list(df.columns), file=log)
-
-                budget_unit_col = df.columns[1]
-                wage_cols = df.columns[16:30]
-
-                df_filtered = df[[budget_unit_col] + list(wage_cols)]
-                df_filtered[wage_cols] = df_filtered[wage_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
-
-                df_grouped = df_filtered.groupby(budget_unit_col).sum()
-
-                for budget_unit, row in df_grouped.iterrows():
-                    for wage_type in wage_cols:
-                        value = row[wage_type]
-                        wage_type_str = str(wage_type).strip()
-                        if "绩效工资" in wage_type_str:
-                            wage_type_str = wage_type_str.replace("绩效工资", "基础性绩效")
-                        if "行政医疗" in wage_type_str:
-                            wage_type_str = wage_type_str.replace("行政医疗", "职工基本医疗（行政）")
-                        elif "事业医疗" in wage_type_str:
-                            wage_type_str = wage_type_str.replace("事业医疗", "基本医疗（事业）")
-                        elif "医疗保险" in wage_type_str:
-                            wage_type_str = wage_type_str.replace("医疗保险", "基本医疗")
-
-                        key = (str(budget_unit).strip(), wage_type_str)
-                        all_values[key] = value
-                        if "医疗" in wage_type_str:
-                            print(f"医疗数值记录 - 单位: {budget_unit}, 类型: {wage_type_str}, 值: {value}", file=log)
-
-                if df_grouped is not None and not df_grouped.empty:
-                    all_data.append(df_grouped)
-                
-            except Exception as e:
-                print(f"处理文件 {filename} 出错: {e}", file=log)
-    
-    if all_data:
-        df_all = pd.concat(all_data)
-        df_final = df_all.groupby(df_all.index).sum()
-        
-        output_path = os.path.join(folder_path, "文件A_汇总结果.xlsx")
-        df_final.to_excel(output_path)
-        print(f"\n汇总结果已保存到: {output_path}", file=log)
-        
-        print(f"\n总共收集到 {len(all_values)} 个数值", file=log)
-        return output_path, all_values, log.getvalue()
+if st.button("🚀 开始处理"):
+    if not zip_file:
+        st.error("请先上传zip文件")
     else:
-        print("没有找到有效数据", file=log)
-        return None, None, log.getvalue()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
+                f.write(zip_file.read())
 
-if uploaded_zip and uploaded_file_b:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "folder_a.zip")
-        with open(zip_path, "wb") as f:
-            f.write(uploaded_zip.read())
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            folder_a_path = os.path.join(tmpdir, "folder_a")
-            zip_ref.extractall(folder_a_path)
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(tmpdir)
 
-        st.write("🗂️ 解压后的文件列表：")
-        for root, dirs, files in os.walk(folder_a_path):
-            for name in files:
-                st.write(os.path.join(root, name))
+            # 找到解压后的子目录（用户上传的内容）
+            folder_a = None
+            for root, dirs, files in os.walk(tmpdir):
+                for f in files:
+                    if f.endswith(('.xls', '.xlsx')):
+                        folder_a = root
+                        break
+                if folder_a:
+                    break
 
-        file_b_path = os.path.join(tmpdir, "file_b.xlsx")
-        with open(file_b_path, "wb") as f:
-            f.write(uploaded_file_b.read())
-
-        if st.button("开始处理"):
-            file_a_path, all_values, log_text = run_process_file_a(folder_a_path)
-            st.text_area("📋 文件A处理日志", log_text, height=300)
-
-            if file_a_path and all_values:
-                st.success(f"文件A生成成功: {file_a_path}")
-                updated_file_b_path = update_file_b(file_a_path, file_b_path)
-                if updated_file_b_path:
-                    st.success(f"文件B更新成功，保存为：{updated_file_b_path}")
-                else:
-                    st.error("文件B更新失败，请检查日志。")
+            if not folder_a:
+                st.error("压缩包中没有找到Excel文件")
             else:
-                st.error("❌ 文件A处理失败，请检查Excel格式和日志信息。")
+                # 自动转xls为xlsx
+                for fname in os.listdir(folder_a):
+                    if fname.endswith('.xls') and not fname.startswith('~$'):
+                        old_path = os.path.join(folder_a, fname)
+                        new_path = convert_xls_to_xlsx(old_path)
+                        os.remove(old_path)
+
+                st.write(f"📁 解压目录：{folder_a}")
+                log = []
+                def logger(msg):
+                    log.append(msg)
+                    log_placeholder.code("\n".join(log[-20:]), language="text")
+
+                logger("📥 正在分析并生成文件A...")
+                try:
+                    file_a_path, values = process_file_a(folder_a, logger=logger)
+                    if not file_a_path:
+                        st.error("❌ 文件A处理失败，请检查Excel格式或第4行列名")
+                    else:
+                        with open(file_a_path, "rb") as f:
+                            st.download_button("⬇️ 下载文件A（汇总结果）", f, file_name="文件A_汇总结果.xlsx")
+
+                        # 第二步更新文件B
+                        if file_b:
+                            logger("\n📤 正在用文件A更新文件B...")
+                            b_path = os.path.join(tmpdir, "uploaded_b.xlsx")
+                            with open(b_path, "wb") as f:
+                                f.write(file_b.read())
+                            updated_path = update_file_b(file_a_path, b_path, logger=logger)
+                            if updated_path:
+                                with open(updated_path, "rb") as f:
+                                    st.download_button("⬇️ 下载更新后的文件B", f, file_name="updated_模板.xlsx")
+                except Exception as e:
+                    st.error(f"处理时出错: {e}")
